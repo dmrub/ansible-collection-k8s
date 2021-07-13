@@ -1,0 +1,18 @@
+---
+repos:
+    - url: https://github.com/dmrub/ansible-collection-k8s
+      branch: main
+      dest: ext/k8s
+      add_roles_path:
+          - ext/roles
+      copy:
+          - proj_dest: ext/k8s/playbooks
+            repo_src: playbooks/
+          - proj_dest: ext/k8s/roles
+            repo_src: roles/
+      symlink:
+          - proj_dest: ext/playbooks/k8s
+            repo_src: playbooks
+          - proj_dest: ext/roles/k8s_multi_cluster_dir
+            repo_src: roles/k8s_multi_cluster_dir
+

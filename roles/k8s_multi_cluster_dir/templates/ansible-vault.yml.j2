@@ -1,0 +1,3 @@
+{% if k8s_vars.extra_vault_vars is defined %}
+{{ k8s_vars.extra_vault_vars | to_nice_yaml(width=10000) }}
+{%- endif -%}

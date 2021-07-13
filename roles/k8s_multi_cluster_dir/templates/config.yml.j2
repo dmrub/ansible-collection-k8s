@@ -1,0 +1,10 @@
+$replace_vars:
+    - ansible.inventories
+ansible:
+    config_file: kubespray/ansible.cfg
+    inventories:
+    - inventory
+    vars_files:
+    - ansible-vars.yml
+    vault_files:
+    - ansible-vault.yml

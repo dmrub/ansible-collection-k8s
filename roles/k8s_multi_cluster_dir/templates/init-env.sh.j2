@@ -1,0 +1,38 @@
+# shellcheck shell=bash
+
+set -eo pipefail
+
+BIN_DIR=$( cd "$(dirname -- "${BASH_SOURCE[0]}")" && pwd -P )
+
+KUBESPRAY_DIR=$BIN_DIR/../kubespray
+INVENTORY_DIR=$BIN_DIR/../inventory
+
+_ANSIBLE_VARS_YML=$BIN_DIR/../ansible-vars.yml
+_ANSIBLE_VAULT_YML=$BIN_DIR/../ansible-vault.yml
+
+{% if project_root_dir is defined %}
+CFG_ROOT_DIR=$THIS_DIR/{{ project_root_dir | realpath | relpath(this_file_path | dirname | realpath) | quote }}
+{% else %}
+CFG_ROOT_DIR=$THIS_DIR/../../..
+{% endif %}
+
+CFG_CONFIGURE_OPTS=(
+    "--read-only"
+)
+
+if [[ -e "$CFG_ROOT_DIR/config.yml" ]]; then
+    CFG_CONFIGURE_OPTS+=(
+        "--config" "$CFG_ROOT_DIR/config.yml"
+    )
+fi
+
+CFG_CONFIGURE_OPTS+=(
+    "--config" "$BIN_DIR/../config.yml"
+)
+
+if [[ -d "$BIN_DIR/../venv" ]]; then
+    CFG_VENV_DIR=$BIN_DIR/../venv
+fi
+
+# shellcheck source=../../../bin/init-env.sh
+source "$CFG_ROOT_DIR/bin/init-env.sh"

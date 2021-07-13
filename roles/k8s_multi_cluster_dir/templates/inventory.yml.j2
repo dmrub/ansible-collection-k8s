@@ -1,0 +1,85 @@
+{%- set k8s_hostvars = k8s_vars.host_vars -%}
+{%- set k8s_hosts = k8s_vars.host_vars.keys() | list -%}
+all:
+  hosts:
+    {%- for host in k8s_hosts -%}
+    {% set is_master = host.endswith('master') or (k8s_hostvars[host].k8s_is_master | default(false) | bool) %}
+
+    {{ host }}:
+      {% for k,v in k8s_hostvars[host].items() -%}
+      {{ k if k is regex("[A-Za-z0-9_-]+") else (k | to_json)  }}: {{ v | to_json }}
+      {% endfor -%}
+      {% if k8s_hostvars[host].ansible_host is defined and k8s_hostvars[host].ip is not defined -%}
+      ip: {{ k8s_hostvars[host].ansible_host | to_json }}
+      {% endif -%}
+      {% if k8s_hostvars[host].ansible_host is defined and k8s_hostvars[host].flannel_interface is not defined -%}
+      flannel_interface: {{ k8s_hostvars[host].ansible_host | to_json }}
+      {% endif -%}
+      {% if is_master -%}
+      etcd_member_name: etcd1
+      {% endif -%}
+    {% endfor %}
+
+  children:
+    kube-master:
+      hosts:
+        {%- for host in k8s_hosts %}
+        {% set is_master = host.endswith('master') or (k8s_hostvars[host].k8s_is_master | default(false) | bool) %}
+        {% if is_master %}
+
+        {{ host }}:
+        {% endif %}
+        {% endfor %}
+
+    etcd:
+      hosts:
+        {%- for host in k8s_hosts %}
+        {% set is_master = host.endswith('master') or (k8s_hostvars[host].k8s_is_master | default(false) | bool) %}
+        {% if is_master %}
+
+        {{ host }}:
+        {% endif %}
+        {% endfor %}
+
+    kube-node:
+      hosts:
+        {%- for host in k8s_hosts %}
+
+        {{ host }}:
+        {% endfor %}
+
+    calico-rr:
+      hosts: {}
+
+    k8s-cluster:
+      children:
+        kube-master:
+        kube-node:
+        calico-rr:
+
+    auto_etc_hosts:
+      hosts:
+        {%- for host in k8s_hosts  %}
+
+        {{ host }}:
+        {% endfor %}
+
+    docker-registry:
+      hosts:
+        {% for host in k8s_hosts %}
+        {% set is_master = host.endswith('master') or (k8s_hostvars[host].k8s_is_master | default(false) | bool) %}
+        {% if is_master %}
+
+        {{ host }}:
+        {% endif %}
+        {% endfor %}
+
+    nvidia_nodes:
+      hosts:
+        {% for host in k8s_hosts %}
+        {% set is_master = host.endswith('master') or (k8s_hostvars[host].k8s_is_master | default(false) | bool) %}
+        {% if not is_master %}
+
+        {{ host }}:
+        {% endif %}
+        {% endfor %}

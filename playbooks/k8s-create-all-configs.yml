@@ -1,0 +1,115 @@
+- hosts: "{{ groups['all'] }}"
+  gather_facts: false
+  tasks:
+
+    - name: Force evaluation of ansible host variables
+      set_fact:
+        eval_ansible_ssh_common_args: "{{ ansible_ssh_common_args | default(omit) }}"
+        eval_ansible_connection: "{{ ansible_connection | default(omit) }}"
+        eval_ansible_ssh_private_key_file: "{{ ansible_ssh_private_key_file | default(omit) }}"
+        eval_ansible_host: "{{ ansible_host | default(omit) }}"
+        eval_ansible_user: "{{ ansible_user | default(omit) }}"
+        eval_ansible_port: "{{ ansible_port | default(omit) }}"
+        eval_ansible_become_pass: "{{ ansible_become_pass | default(omit) }}"
+        eval_ansible_python_interpreter: "{{ ansible_python_interpreter | default(omit) }}"
+
+    - name: Write back ansible host variables
+      set_fact:
+        ansible_ssh_common_args: "{{ eval_ansible_ssh_common_args | default(omit) }}"
+        ansible_connection: "{{ eval_ansible_connection | default(omit) }}"
+        ansible_ssh_private_key_file: "{{ eval_ansible_ssh_private_key_file | default(omit) }}"
+        ansible_host: "{{ eval_ansible_host | default(omit) }}"
+        ansible_user: "{{ eval_ansible_user | default(omit) }}"
+        ansible_port: "{{ eval_ansible_port | default(omit) }}"
+        ansible_become_pass: "{{ eval_ansible_become_pass | default(omit) }}"
+        ansible_python_interpreter: "{{ eval_ansible_python_interpreter | default(omit) }}"
+
+- hosts: 127.0.0.1
+  connection: local
+  gather_facts: false
+  vars:
+    git_force_update: false
+    k8s_components_force_update: false
+    k8s_config_force_update: false
+    k8s_inventory_force_update: false
+    k8s_vars_force_update: false
+    k8s_vault_force_update: false
+    k8s_all_force_update: false
+    k8s_limit_cluster_names: '' # directory names to limit processing separated by ','
+  tasks:
+
+    - name: Try to init k8s_dir variable
+      set_fact:
+        k8s_dir: "{{ cluster_manager_root_dir }}/k8s"
+      when:
+        - k8s_dir is not defined
+        - cluster_manager_root_dir is defined
+        - cluster_manager_root_dir is string
+        - cluster_manager_root_dir | length > 0
+
+    - assert:
+        that:
+          - k8s_dir is defined and k8s_dir is string and (k8s_dir|length > 0)
+        fail_msg: "k8s_dir variable must be a non-empty string"
+
+    - name: Print k8s_dir variable
+      debug:
+        var: k8s_dir
+
+    - name: Create k8s directory
+      file:
+        path: "{{ k8s_dir }}"
+        state: directory
+
+    - name: Init variables
+      set_fact:
+        k8s_inventory_groups: []
+        k8s_clusters: {} # maps cluster name to inventory group
+        k8s_limit_cluster_names_list: >-
+          {{
+             ((k8s_limit_cluster_names | default('')).split(',') | reject('equalto', '') | list)
+          }}
+
+    - name: Find k8s inventory groups
+      set_fact:
+        k8s_inventory_groups: "{{ k8s_inventory_groups | union([hostvars[item].k8s_group]) }}"
+      when: >-
+        hostvars[item].k8s_group is defined and
+        (groups[hostvars[item].k8s_group] | default([]) | length > 0)
+      loop: "{{ groups['all'] }}"
+
+    - name: Create k8s_clusters
+      set_fact:
+        k8s_clusters: "{{ k8s_clusters | combine({k8s_cluster_name: item}) }}"
+      vars:
+        k8s_cluster_name: "{{ hostvars[groups[item][0]]['cluster_name'] | default(item | regex_replace('[-_]group$','')) }}"
+      loop: "{{ k8s_inventory_groups }}"
+
+    - name: Find k8s subdirectories
+      find:
+        paths: "{{ k8s_dir }}"
+        file_type: directory
+        recurse: no
+      register: find_result
+
+    - name: Add k8s subdirectories to the k8s_clusters
+      set_fact:
+        k8s_clusters: "{{ k8s_clusters | combine({k8s_cluster_name: None}) }}"
+      vars:
+        k8s_cluster_name: "{{ item.path | basename }}"
+      when:
+        - k8s_cluster_name not in k8s_clusters
+        - k8s_cluster_name not in ['resources', 'scripts', 'templates', '.git']
+      loop: "{{ find_result.files }}"
+
+    - name: Create inventories
+      include_role:
+        name: k8s_init_cluster_dir
+      vars:
+        k8s_cluster_name: "{{ k8s_cluster.key }}"
+        k8s_inventory_group: "{{ k8s_cluster.value }}"
+        k8s_components: null # force using components defined by host
+      loop_control:
+        loop_var: k8s_cluster
+      when: "(k8s_limit_cluster_names_list | length == 0) or (k8s_cluster.key in k8s_limit_cluster_names_list)"
+      loop: "{{ k8s_clusters | dict2items }}"

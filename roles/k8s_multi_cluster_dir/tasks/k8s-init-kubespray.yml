@@ -1,0 +1,43 @@
+- name: Set variables
+  set_fact:
+    venv_dir: "{{ src }}-venv"
+
+- name: Create virtual environment
+  script:
+    cmd: install-venv.sh {{ venv_dir | quote }}
+  args:
+    creates: "{{ venv_dir }}/bin/activate"
+
+- name: Install kubespray requirements
+  shell: |
+    set -ex;
+    . {{ venv_dir | quote }}/bin/activate;
+    pip install -r {{ src | quote }}/requirements.txt;
+    if [ -e {{ dest ~ '/requirements.txt' | quote }} ]; then
+      pip install -r {{ dest ~ '/requirements.txt' | quote }};
+    fi;
+
+- name: Create link to venv
+  file:
+    force: yes
+    src: "{{ venv_dir | relpath(dest) }}"
+    dest: "{{ dest }}/venv"
+    state: link
+
+- name: Create inventory directory
+  file:
+    path: "{{ dest }}/inventory"
+    state: directory
+
+- name: Create link to kubespray
+  file:
+    force: yes
+    src: "{{ src | relpath(dest) }}"
+    dest: "{{ dest }}/kubespray"
+    state: link
+
+- name: Create link to group_vars
+  file:
+    src: "{{ (src+'/inventory/sample/group_vars') | relpath(dest+'/inventory') }}"
+    dest: "{{ dest }}/inventory/group_vars"
+    state: link

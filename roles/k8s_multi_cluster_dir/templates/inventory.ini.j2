@@ -1,0 +1,60 @@
+## Configure 'ip' variable to bind kubernetes services on a
+## different ip than the default iface
+## We should set etcd_member_name for etcd cluster. The node that is not a etcd member do not need to set the value, or can set the empty string value.
+[all]
+{% for host in groups[k8s_inventory_group] %}
+{% set ansible_host = hostvars[host].ansible_host %}
+{% set ansible_port = hostvars[host].ansible_port %}
+{% set ansible_python_interpreter = hostvars[host].ansible_python_interpreter %}
+{% set is_master = host.endswith('master') %}
+{{ host }} ansible_host={{ ansible_host }} ansible_port={{ ansible_port }} ip={{ ansible_host }} flannel_interface={{ ansible_host }} {% if is_master %}etcd_member_name=etcd1{% endif %} ansible_python_interpreter={{ ansible_python_interpreter }}
+{% endfor %}
+
+[kube-master]
+{% for host in groups[k8s_inventory_group] %}
+{% set is_master = host.endswith('master') %}
+{% if is_master %}
+{{ host }}
+{% endif %}
+{% endfor %}
+
+[etcd]
+{% for host in groups[k8s_inventory_group] %}
+{% set is_master = host.endswith('master') %}
+{% if is_master %}
+{{ host }}
+{% endif %}
+{% endfor %}
+
+[kube-node]
+{% for host in groups[k8s_inventory_group] %}
+{{ host }}
+{% endfor %}
+
+[calico-rr]
+
+[k8s-cluster:children]
+kube-master
+kube-node
+calico-rr
+
+[auto_etc_hosts]
+{% for host in groups[k8s_inventory_group] %}
+{{ host }}
+{% endfor %}
+
+[docker-registry]
+{% for host in groups[k8s_inventory_group] %}
+{% set is_master = host.endswith('master') %}
+{% if is_master %}
+{{ host }}
+{% endif %}
+{% endfor %}
+
+[nvidia_nodes]
+{% for host in groups[k8s_inventory_group] %}
+{% set is_master = host.endswith('master') %}
+{% if not is_master %}
+{{ host }}
+{% endif %}
+{% endfor %}

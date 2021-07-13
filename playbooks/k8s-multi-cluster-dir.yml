@@ -1,0 +1,78 @@
+---
+- hosts: "{{ groups['all'] }}"
+  gather_facts: false
+  tasks:
+
+    - name: Force evaluation of used host variables
+      set_fact:
+        eval_ansible_ssh_common_args: "{{ ansible_ssh_common_args | default(omit) }}"
+        eval_ansible_connection: "{{ ansible_connection | default(omit) }}"
+        eval_ansible_ssh_private_key_file: "{{ ansible_ssh_private_key_file | default(omit) }}"
+        eval_ansible_host: "{{ ansible_host | default(omit) }}"
+        eval_ansible_user: "{{ ansible_user | default(omit) }}"
+        eval_ansible_port: "{{ ansible_port | default(omit) }}"
+
+    - name: Print host variables
+      debug:
+        msg:
+          - "eval_ansible_ssh_common_args: {{ eval_ansible_ssh_common_args | default('none') }}"
+          - "eval_ansible_connection: {{ eval_ansible_connection | default('none') }}"
+          - "eval_ansible_ssh_private_key_file: {{ eval_ansible_ssh_private_key_file | default('none') }}"
+          - "eval_ansible_host: {{ eval_ansible_host | default('none') }}"
+          - "eval_ansible_user: {{ eval_ansible_user | default('none') }}"
+          - "eval_ansible_port: {{ eval_ansible_port | default('none') }}"
+
+    - name: Set back
+      set_fact:
+        ansible_ssh_common_args: "{{ eval_ansible_ssh_common_args  | default(omit) }}"
+        ansible_connection: "{{ eval_ansible_connection | default(omit) }}"
+        ansible_ssh_private_key_file: "{{ eval_ansible_ssh_private_key_file | default(omit) }}"
+        ansible_host: "{{ eval_ansible_host | default(omit) }}"
+        ansible_user: "{{ eval_ansible_user | default(omit) }}"
+        ansible_port: "{{ eval_ansible_port | default(omit) }}"
+
+- name: Run k8s_multi_cluster_dir
+  hosts: 127.0.0.1
+  connection: local
+  gather_facts: false
+  vars_prompt:
+    - name: libvirt_cluster_host
+      prompt: "Libvirt cluster host or group to create Kubernetes configuration"
+      private: no
+
+  tasks:
+
+    - name: If libvirt_cluster_host is a group name get first node of this group
+      set_fact:
+          _libvirt_cluster_host: >-
+            {{ groups[libvirt_cluster_host][0] if (hostvars[libvirt_cluster_host] is not defined and
+                groups[libvirt_cluster_host] is defined and
+                (groups[libvirt_cluster_host] | length) > 0) else libvirt_cluster_host
+            }}
+
+    - name: Debug | Print libvirt_cluster_host
+      debug:
+        var: _libvirt_cluster_host
+
+    - name: Check if the host _libvirt_cluster_host is defined
+      fail:
+        msg: "There is no host or group named {{_libvirt_cluster_host}}"
+      when: hostvars[_libvirt_cluster_host] is not defined
+
+    - name: Check libvirt_config variable
+      fail:
+        msg: "No libvirt_config variable is defined in variables of the {{_libvirt_cluster_host}} host"
+      when: hostvars[_libvirt_cluster_host].libvirt_config is not defined
+
+    - name: Set libvirt_config variable
+      set_fact:
+        libvirt_config: "{{ hostvars[_libvirt_cluster_host].libvirt_config }}"
+        libvirt_host: "{{ hostvars[_libvirt_cluster_host].libvirt_config.libvirt_host }}"
+
+    - name: Set variables
+      set_fact:
+        k8s_inventory_group: "{{ libvirt_config.libvirt_cluster_inventory_group }}"
+
+    - name: Create inventory
+      include_role:
+        name: k8s_multi_cluster_dir

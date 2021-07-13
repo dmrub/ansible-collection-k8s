@@ -1,0 +1,383 @@
+---
+# tasks file for k8s-init-cluster-dir
+
+- name: Try to init k8s_dir variable
+  set_fact:
+    k8s_dir: "{{ project_root_dir }}/k8s"
+  when:
+    - k8s_dir is not defined
+    - project_root_dir is defined
+    - project_root_dir is string
+    - project_root_dir | length > 0
+
+- assert:
+    that:
+      - k8s_dir is defined and k8s_dir is string and (k8s_dir|length > 0)
+    fail_msg: "k8s_dir variable must be a non-empty string"
+
+- name: Try to detect cluster name
+  set_fact:
+    k8s_cluster_name: "{{ hostvars[groups[k8s_inventory_group][0]]['cluster_name'] | default(omit) }}"
+  when: k8s_inventory_group is defined and k8s_cluster_name is not defined
+
+- assert:
+    that:
+      - k8s_cluster_name is defined and k8s_cluster_name is string and (k8s_cluster_name|length > 0)
+    fail_msg: "k8s_cluster_name variable must be a non-empty string"
+
+- name: Print k8s_cluster_name
+  debug:
+    var: k8s_cluster_name
+
+- name: Print k8s_inventory_group
+  debug:
+    var: k8s_inventory_group
+
+- assert:
+    that:
+      - k8s_inventory_group is not defined or k8s_inventory_group is none or k8s_inventory_group is string
+    fail_msg: "k8s_inventory_group must be a string or none, but is of type {{ k8s_inventory_group | type_debug }}"
+
+- assert:
+    that:
+      - k8s_components is not defined or (k8s_components is mapping or k8s_components is none)
+    fail_msg: "k8s_components must be dictionary or none, but is of type {{ k8s_components | type_debug }}"
+
+- name: Init _k8s_components
+  set_fact:
+    _k8s_components: {}
+
+- name: Init _k8s_host_components
+  set_fact:
+    _k8s_host_components: "{{ hostvars[groups[k8s_inventory_group][0]]['k8s_components'] | default({}) }}"
+  when: k8s_inventory_group is defined and k8s_inventory_group is string and (k8s_inventory_group|length > 0)
+
+- name: Use k8s_components variable defined in the inventory group
+  set_fact:
+    _k8s_components: "{{ _k8s_host_components }}"
+  when:
+    - _k8s_host_components is defined and (_k8s_host_components|length > 0)
+    - not (k8s_components is defined and (k8s_components|bool))
+
+- name: Use global k8s_components variable
+  set_fact:
+    _k8s_components: "{{ k8s_components }}"
+  when: k8s_components is defined and (k8s_components|bool)
+
+- name: Init k8s variables
+  set_fact:
+    k8s_resources_dir: "{{ k8s_dir }}/resources"
+    k8s_cluster_dir: "{{ k8s_dir }}/{{ k8s_cluster_name }}"
+    k8s_components_file:  "{{ k8s_dir }}/{{ k8s_cluster_name }}/components.yml"
+    _k8s_components: "{{ k8s_components_defaults | combine(_k8s_components, recursive=True) }}"
+
+- name: Print cluster information
+  debug:
+    msg:
+      - "Cluster {{ k8s_cluster_name }}"
+      - "Cluster directory: {{ k8s_cluster_dir }}"
+      - "Cluster components: {{ _k8s_components }}"
+
+- name: Create cluster directories
+  file:
+    path: "{{ item }}"
+    state: directory
+  loop:
+    - "{{ k8s_dir }}"
+    - "{{ k8s_dir }}/{{ k8s_cluster_name }}"
+    - "{{ k8s_dir }}/{{ k8s_cluster_name }}/inventory"
+    - "{{ k8s_dir }}/{{ k8s_cluster_name }}/bin"
+    - "{{ k8s_dir }}/{{ k8s_cluster_name }}/playbooks"
+
+- name: Create k8s gitignore file
+  copy:
+    force: "{{ (k8s_gitignore_force_update | bool) or (k8s_all_force_update | bool) }}"
+    src: "k8s.gitignore"
+    dest: "{{ k8s_dir }}/.gitignore"
+    mode: u+rw
+
+- name: Create resources directory
+  file:
+    path: "{{ k8s_resources_dir }}"
+    state: directory
+
+- name: Save k8s components file
+  copy:
+    force: "{{ (k8s_components_force_update | bool) or (k8s_all_force_update | bool) }}"
+    content: "{{ _k8s_components | to_nice_yaml(indent=2) }}"
+    dest: "{{ k8s_components_file }}"
+
+- name: Load k8s components file back
+  set_fact:
+    _k8s_components: "{{ (lookup('file', k8s_components_file) | from_yaml) }}"
+
+- name: Create task lists
+  set_fact:
+    git_repos: "{{ value.git_repos }}"
+    init_tasks: "{{ value.init_tasks }}"
+  vars:
+    value: |
+      {% set result = namespace(git_repos={}, init_tasks=[]) %}
+      {% for name, dep in _k8s_components.items() %}
+      {%   set branch = dep.branch|default('master') %}
+      {%   set repo_dest = (k8s_resources_dir + '/' + name + ('' if branch == 'master' else '-' + branch)) | realpath %}
+      {%   set repo = dep.repo |
+              mandatory("repo variable missing in the description of the repository "+name+" in file "+k8s_components_file)
+      %}
+      {%   set result.git_repos = result.git_repos | combine({ repo_dest: {'repo':repo, 'branch': branch } }) %}
+      {%   set result.init_tasks = result.init_tasks + [{
+              'name': name,
+              'src': repo_dest,
+              'dest': k8s_cluster_dir
+            }]
+      %}
+      {% endfor %}
+      {{ {'git_repos': result.git_repos, 'init_tasks': result.init_tasks} | to_json }}
+
+- name: Clone k8s components
+  git:
+    repo: "{{ item.value.repo }}"
+    dest: "{{ item.key }}"
+    version: "{{ item.value.branch }}"
+    accept_hostkey: yes
+    force: "{{ (git_force_update | bool) or (k8s_all_force_update | bool) }}"
+    umask: '0002'
+  loop: "{{ git_repos | dict2items }}"
+
+- name: Copy python requirements.txt file
+  copy:
+    force: yes
+    src: "{{ item }}"
+    dest: "{{ this_file_path }}"
+    mode: u+rw
+  vars:
+    this_file_path: "{{ k8s_dir }}/{{ k8s_cluster_name }}/{{ item }}"
+  loop:
+    - "requirements.txt"
+
+- name: Init k8s components
+  include_tasks: "k8s-init-{{ item.name }}.yml"
+  vars:
+    src: "{{ item.src }}"
+    dest: "{{ item.dest }}"
+  loop: "{{ init_tasks }}"
+
+- name: Create bin directory
+  file:
+    path: "{{ k8s_dir }}/{{ k8s_cluster_name }}/bin"
+    state: directory
+
+- name: Create shell script files from templates
+  template:
+    force: yes
+    src: "{{ item.file }}.j2"
+    dest: "{{ this_file_path }}"
+    mode: "{{ item.mode }}"
+  vars:
+    this_file_path: "{{ k8s_dir }}/{{ k8s_cluster_name }}/bin/{{ item.file }}"
+  loop:
+    - {file: "init-env.sh", mode: u+rw}
+
+- name: Copy shell script files
+  copy:
+    force: yes
+    src: "{{ item }}"
+    dest: "{{ this_file_path }}"
+    mode: u+rwx
+  vars:
+    this_file_path: "{{ k8s_dir }}/{{ k8s_cluster_name }}/bin/{{ item }}"
+  loop:
+    - "kubectl.sh"
+    - "fetch-client.sh"
+    - "fetch-kube-certs.sh"
+    - "kube-test-network.sh"
+    - "check-connectivity.sh"
+    - "create-ssh-scripts.sh"
+    - "deploy-cluster.sh"
+    - "run-ansible.sh"
+    - "run-ansible-vault.sh"
+    - "run-ansible-playbook.sh"
+    - "run-ansible-config.sh"
+    - "run-ansible-inventory.sh"
+    - "run-shell.sh"
+    - "configure.sh"
+    - "run-ssh.sh"
+    - "run-scp.sh"
+    - "run-sftp.sh"
+    - "run-rsync.sh"
+
+- name: Copy playbook files
+  copy:
+    force: yes
+    src: "{{ item }}"
+    dest: "{{ this_file_path }}"
+    mode: u+rw
+  vars:
+    this_file_path: "{{ k8s_dir }}/{{ k8s_cluster_name }}/playbooks/{{ item }}"
+  loop:
+    - "create-ssh-scripts.yml"
+    - "ssh-args-to-config.py"
+
+- name: Create config files from templates
+  template:
+    force: "{{ (k8s_config_force_update | bool) or (k8s_all_force_update | bool) }}"
+    src: "{{ item }}.j2"
+    dest: "{{ this_file_path }}"
+    mode: u+rw
+  vars:
+    this_file_path: "{{ k8s_dir }}/{{ k8s_cluster_name }}/{{ item }}"
+  loop:
+    - "config.yml"
+
+- name: Create cluster configuration
+  when: k8s_inventory_group is defined and (k8s_inventory_group|default(false))
+  block:
+
+    - name: Print k8s_inventory_group
+      debug:
+        var: k8s_inventory_group
+
+    - name: Print information
+      debug:
+        msg:
+          - "item: {{ item }}"
+          - "ansible_host: {{ ansible_host | default('undefined') }}"
+          - "ansible_host of {{ item }}: {{ hostvars[item].ansible_host | default('undefined') }}"
+          - "ansible_ssh_common_args of {{ item }}: {{ hostvars[item].ansible_ssh_common_args | default('undefined') }}"
+      #delegate_to: "{{ item }}"
+      loop: "{{ groups[k8s_inventory_group] }}"
+
+    - name: Set variables for inventory processing
+      set_fact:
+        k8s_inventory_hostvars: "{{ hostvars[groups[k8s_inventory_group][0]] | default({}) }}"
+        k8s_inventory_replace_vars: {}
+        k8s_inventory_filename: "{{ k8s_dir }}/{{ k8s_cluster_name }}/inventory/inventory.yml"
+        k8s_extra_vars_filename: "{{ k8s_dir }}/{{ k8s_cluster_name }}/ansible-vars.yml"
+        k8s_vault_filename: "{{ k8s_dir }}/{{ k8s_cluster_name }}/ansible-vault.yml"
+
+    - name: Set variables for inventory processing 2
+      set_fact:
+        k8s_hostvars: "{{ (value | from_json) if _value is string else value }}"
+      vars:
+        value: |
+          {
+          {% for host in groups[k8s_inventory_group] %}
+            {{ host | to_json }}: {{ hostvars[host] | to_json}}
+          {%-  if not loop.last %}
+            ,
+          {%   endif %}
+          {% endfor %}
+          }
+
+    - name: Debug | Create argument file for testing the process_hostvars module
+      copy:
+        content: >-
+          {{
+            ({ "ANSIBLE_MODULE_ARGS": {
+                "pathvars": {
+                  "cluster_manager_dir": project_root_dir
+                },
+                "hostvars": k8s_hostvars
+              }
+            }) | to_nice_json
+          }}
+        dest: "{{ dest_dir | default('.') }}/process_hostvars_args.json"
+      when: debug_process_hostvars | default(false)
+
+    - name: Process k8s_hostvars
+      local_action:
+        module: process_hostvars
+        hostvars: "{{ k8s_hostvars }}"
+        pathvars:
+          project_root_dir: "{{ project_root_dir | default(none) }}"
+        var_names:
+          - ansible_host
+          - ansible_port
+          - ansible_user
+          - ansible_python_interpreter
+          - ansible_ssh_common_args
+          - ansible_ssh_private_key_file
+          - kube_external_apiserver_address
+          - kube_external_apiserver_port
+          - supplementary_addresses_in_ssl_keys
+          - cluster_name
+          - k8s_is_master
+        vault_var_names:
+          - ansible_become_pass
+          - ansible_ssh_pass
+        var_name_refs:
+          - ansible_ssh_private_key_file
+        path_var_names:
+          - ansible_ssh_private_key_file
+      register: k8s_vars
+
+    - name: Debug | Print process_hostvars module result
+      debug:
+        var: k8s_vars
+      when: debug_process_hostvars | default(false)
+
+    - name: Create inventory file
+      template:
+        force: "{{ (k8s_inventory_force_update | bool)  or (k8s_all_force_update | bool) }}"
+        src: inventory.yml.j2
+        dest: "{{ k8s_inventory_filename }}"
+
+    - name: Remove empty lines and trailing whitespace
+      shell: >-
+        set -ex;
+        FILE={{ k8s_inventory_filename | quote }};
+        TMP_FILE=$(mktemp {{ k8s_inventory_filename ~ '.XXXXXXXXXX' | quote }});
+        sed -e'/^[[:space:]]*$/d' -e's/[ \t]*$//' "$FILE" > "$TMP_FILE";
+        mv "$TMP_FILE" "$FILE";
+
+    - name: Debug | Print information about created inventory file
+      debug:
+        msg: "Inventory written to the file {{ k8s_inventory_filename }}"
+
+    - name: Create vars file
+      template:
+        force: "{{ (k8s_vars_force_update | bool) or (k8s_all_force_update | bool) }}"
+        src: ansible-vars.yml.j2
+        dest: "{{ k8s_extra_vars_filename }}"
+      vars:
+        cluster_name: "{{ k8s_cluster_name }}"
+        kube_external_apiserver_address: "{{ k8s_vars.extra_vars.kube_external_apiserver_address | default(none) }}"
+        kube_external_apiserver_port: "{{ k8s_vars.extra_vars.kube_external_apiserver_port | default(none) }}"
+        supplementary_addresses_in_ssl_keys: "{{ k8s_vars.extra_vars.supplementary_addresses_in_ssl_keys | default([]) }}"
+
+    - name: Debug | Print information about created variables file
+      debug:
+        msg: "Extra variables written to the file {{ k8s_extra_vars_filename }}"
+
+    - name: Set variables
+      set_fact:
+        run_ansible_vault_path: "{{ k8s_dir }}/{{ k8s_cluster_name }}/bin/run-ansible-vault.sh"
+
+    - name: Create vault file
+      template:
+        force: "{{ (k8s_vault_force_update | bool) or (k8s_all_force_update | bool) }}"
+        src: ansible-vault.yml.j2
+        dest: "{{ k8s_vault_filename }}"
+      register: vault_file_result
+
+    - name: Remove empty lines and trailing whitespace in vault file
+      shell: >-
+        set -ex;
+        FILE={{ k8s_vault_filename | quote }};
+        TMP_FILE=$(mktemp {{ k8s_vault_filename ~ '.XXXXXXXXXX' | quote }});
+        sed -e'/^[[:space:]]*$/d' -e's/[ \t]*$//' "$FILE" > "$TMP_FILE";
+        mv "$TMP_FILE" "$FILE";
+      when: vault_file_result.changed
+
+#    - name: STOP
+#      fail:
+#        msg: STOP
+#      when: True
+
+    - name: Encrypt vault file
+      command: "{{ run_ansible_vault_path | quote }} encrypt {{ k8s_vault_filename | quote }}"
+      when: vault_file_result.changed
+
+    - name: Debug | Print information about created variables file
+      debug:
+        msg: "Vault written to the file {{ k8s_vault_filename }}"
