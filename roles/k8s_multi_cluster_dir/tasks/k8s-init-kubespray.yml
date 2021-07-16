@@ -2,6 +2,16 @@
   set_fact:
     venv_dir: "{{ src }}-venv"
 
+- name: Detect kubespray version
+  set_fact:
+    kubespray_version: "{{ _kubespray_version[0] if (_kubespray_version|length) > 0 else '0.0' }}"
+  vars:
+    _kubespray_version: "{{ (branch | regex_search('(?P<version>[0-9]+(?:[.][0-9]+)*)', '\\g<version>')) }}"
+
+- name: Check specific kubespray versions
+  set_fact:
+    is_kubespray_2_16_0: "{{ kubespray_version is version('2.16.0', '>=') }}"
+
 - name: Create virtual environment
   script:
     cmd: install-venv.sh {{ venv_dir | quote }}

@@ -52,17 +52,23 @@
     _k8s_host_components: "{{ hostvars[groups[k8s_inventory_group][0]]['k8s_components'] | default({}) }}"
   when: k8s_inventory_group is defined and k8s_inventory_group is string and (k8s_inventory_group|length > 0)
 
+- name: Use k8s_components variable if defined
+  set_fact:
+    _k8s_components: "{{ k8s_components }}"
+  when:
+    - k8s_components is defined and (k8s_components|length > 0)
+
 - name: Use k8s_components variable defined in the inventory group
   set_fact:
     _k8s_components: "{{ _k8s_host_components }}"
   when:
     - _k8s_host_components is defined and (_k8s_host_components|length > 0)
-    - not (k8s_components is defined and (k8s_components|bool))
+    - not (k8s_components is defined and (k8s_components|length > 0))
 
 - name: Use global k8s_components variable
   set_fact:
     _k8s_components: "{{ k8s_components }}"
-  when: k8s_components is defined and (k8s_components|bool)
+  when: k8s_components is defined and (k8s_components|length > 0)
 
 - name: Init k8s variables
   set_fact:
@@ -128,7 +134,8 @@
       {%   set result.init_tasks = result.init_tasks + [{
               'name': name,
               'src': repo_dest,
-              'dest': k8s_cluster_dir
+              'dest': k8s_cluster_dir,
+              'branch': branch
             }]
       %}
       {% endfor %}
@@ -160,6 +167,7 @@
   vars:
     src: "{{ item.src }}"
     dest: "{{ item.dest }}"
+    branch: "{{ item.branch }}"
   loop: "{{ init_tasks }}"
 
 - name: Create bin directory
@@ -194,6 +202,7 @@
     - "check-connectivity.sh"
     - "create-ssh-scripts.sh"
     - "deploy-cluster.sh"
+    - "reset-cluster.sh"
     - "run-ansible.sh"
     - "run-ansible-vault.sh"
     - "run-ansible-playbook.sh"
@@ -209,7 +218,7 @@
 - name: Copy playbook files
   copy:
     force: yes
-    src: "{{ item }}"
+    src: "playbooks/{{ item }}"
     dest: "{{ this_file_path }}"
     mode: u+rw
   vars:
@@ -217,6 +226,9 @@
   loop:
     - "create-ssh-scripts.yml"
     - "ssh-args-to-config.py"
+    - "disable-firewall.yml"
+    - "disable-swap.yml"
+    - "check-connectivity.yml"
 
 - name: Create config files from templates
   template:
@@ -319,7 +331,7 @@
     - name: Create inventory file
       template:
         force: "{{ (k8s_inventory_force_update | bool)  or (k8s_all_force_update | bool) }}"
-        src: inventory.yml.j2
+        src: kubespray/inventory.yml.j2
         dest: "{{ k8s_inventory_filename }}"
 
     - name: Remove empty lines and trailing whitespace

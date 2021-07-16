@@ -55,11 +55,19 @@ calico_mtu: 1400
 
 ## Used to set docker daemon iptables options to true
 docker_iptables_enabled: "true" # default: "false"
+{%if is_kubespray_2_16_0 %}
+{% raw %}
+docker_insecure_registries: "{{ (groups['docker_registry'] | default([], true) | map('regex_replace', '^(.*)$', '\\1:' ~ (docker_registry_port|default('5000', true))) | list) }}"
+
+# docker_options: "--insecure-registry={{ kube_service_addresses }} {% for item in docker_insecure_registries %} --insecure-registry={{item}} {% endfor %} --graph={{ docker_daemon_graph }} {{ docker_log_opts }} --iptables=true"
+{% endraw %}
+{% else %}
 {% raw %}
 docker_insecure_registries: "{{ (groups['docker-registry'] | default([], true) | map('regex_replace', '^(.*)$', '\\1:' ~ (docker_registry_port|default('5000', true))) | list) }}"
 
 # docker_options: "--insecure-registry={{ kube_service_addresses }} {% for item in docker_insecure_registries %} --insecure-registry={{item}} {% endfor %} --graph={{ docker_daemon_graph }} {{ docker_log_opts }} --iptables=true"
 {% endraw %}
+{% endif %}
 
 # Additional Kubernetes configuration
 
@@ -94,3 +102,7 @@ enable_nodelocaldns: false
    to_nice_yaml(width=10000)
 }}
 {%- endif -%}
+
+k8s_all_hosts: {{ 'k8s_cluster:etcd:calico_rr' if is_kubespray_2_16_0 else 'k8s-cluster:etcd:calico-rr' }}
+k8s_all_masters: {{ 'kube_control_plane' if is_kubespray_2_16_0 else 'kube-master' }}
+k8s_cluster_hosts: {{ 'k8s_cluster' if is_kubespray_2_16_0 else 'k8s-cluster' }}

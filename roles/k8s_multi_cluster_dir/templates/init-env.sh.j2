@@ -30,6 +30,10 @@ CFG_CONFIGURE_OPTS+=(
     "--config" "$BIN_DIR/../config.yml"
 )
 
+CFG_ANSIBLE_EXTRA_VARS=(
+    "kubespray_dir=$KUBESPRAY_DIR"
+)
+
 if [[ -d "$BIN_DIR/../venv" ]]; then
     CFG_VENV_DIR=$BIN_DIR/../venv
 fi

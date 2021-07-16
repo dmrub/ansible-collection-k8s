@@ -1,4 +1,9 @@
 {%- set k8s_hostvars = k8s_vars.host_vars -%}
+{%- set g_k8s_cluster = 'k8s_cluster' if is_kubespray_2_16_0 else 'k8s-cluster' -%}
+{%- set g_kube_master = 'kube_control_plane' if is_kubespray_2_16_0 else 'kube-master' -%}
+{%- set g_kube_node = 'kube_node' if is_kubespray_2_16_0 else 'kube-node' -%}
+{%- set g_calico_rr = 'calico_rr' if is_kubespray_2_16_0 else 'calico-rr' -%}
+{%- set g_docker_registry = 'docker_registry' if is_kubespray_2_16_0 else 'docker-registry' %}
 {%- set k8s_hosts = k8s_vars.host_vars.keys() | list -%}
 all:
   hosts:
@@ -21,7 +26,7 @@ all:
     {% endfor %}
 
   children:
-    kube-master:
+    {{ g_kube_master }}:
       hosts:
         {%- for host in k8s_hosts %}
         {% set is_master = host.endswith('master') or (k8s_hostvars[host].k8s_is_master | default(false) | bool) %}
@@ -41,21 +46,21 @@ all:
         {% endif %}
         {% endfor %}
 
-    kube-node:
+    {{ g_kube_node }}:
       hosts:
         {%- for host in k8s_hosts %}
 
         {{ host }}:
         {% endfor %}
 
-    calico-rr:
+    {{ g_calico_rr }}:
       hosts: {}
 
-    k8s-cluster:
+    {{ g_k8s_cluster }}:
       children:
-        kube-master:
-        kube-node:
-        calico-rr:
+        {{ g_kube_master }}:
+        {{ g_kube_node }}:
+        {{ g_calico_rr }}:
 
     auto_etc_hosts:
       hosts:
@@ -64,7 +69,7 @@ all:
         {{ host }}:
         {% endfor %}
 
-    docker-registry:
+    {{ g_docker_registry }}:
       hosts:
         {% for host in k8s_hosts %}
         {% set is_master = host.endswith('master') or (k8s_hostvars[host].k8s_is_master | default(false) | bool) %}
@@ -83,3 +88,17 @@ all:
         {{ host }}:
         {% endif %}
         {% endfor %}
+    k8s_all_hosts:
+      children:
+        {{ g_k8s_cluster }}:
+        etcd:
+        {{ g_calico_rr }}:
+    k8s_master_hosts:
+      children:
+        {{ g_kube_master }}:
+    k8s_cluster_hosts:
+      children:
+        {{ g_k8s_cluster }}:
+    k8s_etcd_hosts:
+      children:
+        etcd:
