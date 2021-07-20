@@ -4,7 +4,7 @@ repos:
       branch: main
       dest: ext/k8s
       add_roles_path:
-          - ext/roles
+          - roles
       copy:
           - proj_dest: ext/k8s/playbooks
             repo_src: playbooks/
