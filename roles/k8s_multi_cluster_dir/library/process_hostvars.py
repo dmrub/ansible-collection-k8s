@@ -91,6 +91,9 @@ def run_module():
     module_args = dict(
         hostvars=dict(type='dict', required=True),
         pathvars=dict(type='dict', required=False, default={}),
+        host_var_names=dict(type='list', required=False, default=[
+            'ansible_host', 'ansible_port', 'ansible_user', 'k8s_is_master'
+        ]),
         var_names=dict(type='list', required=False, default=[
             'ansible_host', 'ansible_port', 'ansible_user',
             'ansible_python_interpreter', 'ansible_ssh_common_args',
@@ -126,14 +129,19 @@ def run_module():
 
     hostvars = module.params['hostvars']
     pathvars = module.params['pathvars']
+    host_var_names = set(module.params['host_var_names'])
     var_names = set(module.params['var_names'])
     vault_var_names = set(module.params['vault_var_names'])
     var_name_refs = set(module.params['var_name_refs'])
     path_var_names = set(module.params['path_var_names'])
+    hosts = set(hostvars.keys())
 
     common_vars = dict()  # common variables
     common_vault_vars = dict()  # common vault variables
     inventory_vars = defaultdict(dict)  # variables per host
+
+    for host in hosts:
+        inventory_vars[host] = {}
 
     # inventory_var_names and inventory_vault_var_names are used to store variable names that have different values on
     # different hosts and therefore need to be stored individually per node
@@ -245,6 +253,16 @@ def run_module():
                                                          os.path.relpath(var_value, pv_value))
             except ValueError:
                 pass
+
+    # Special case:
+    # If there is only one host, host-specific variables are moved from common_vars to inventory_vars
+    if len(hosts) == 1:
+        host = next(iter(hosts))
+        for host_var_name in host_var_names:
+            if host_var_name not in inventory_vars[host]:
+                if host_var_name in common_vars:
+                    inventory_vars[host][host_var_name] = common_vars[host_var_name]
+                    del common_vars[host_var_name]
 
     # if the user is working with this module in only check mode we do not
     # want to make any changes to the environment, just return the current
