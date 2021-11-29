@@ -9,6 +9,10 @@ set -e
 
 run-ansible all -m setup
 
-if [[ -e "$KUBESPRAY_DIR/fetch-client.yml" ]]; then
-    run-ansible-playbook "$KUBESPRAY_DIR/fetch-client.yml" "$@"
+PLAYBOOK=$KUBESPRAY_DIR/fetch-client.yml
+
+if [[ -e "$PLAYBOOK" ]]; then
+    run-ansible-playbook "$PLAYBOOK" "$@"
+else
+    fatal "No playbook $PLAYBOOK"
 fi

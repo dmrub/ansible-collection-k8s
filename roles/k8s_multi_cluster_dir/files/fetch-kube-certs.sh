@@ -9,6 +9,10 @@ set -e
 
 run-ansible all -m setup
 
-if [[ -e "$KUBESPRAY_DIR/fetch-kube-certs.yml" ]]; then
-    run-ansible-playbook "$KUBESPRAY_DIR/fetch-kube-certs.yml" "$@"
+PLAYBOOK=$KUBESPRAY_DIR/fetch-kube-certs.yml
+
+if [[ -e "$PLAYBOOK" ]]; then
+    run-ansible-playbook "$PLAYBOOK" "$@"
+else
+    fatal "No playbook $PLAYBOOK"
 fi
