@@ -88,6 +88,7 @@ all:
         {{ host }}:
         {% endif %}
         {% endfor %}
+
     k8s_all_hosts:
       children:
         {{ g_k8s_cluster }}:
