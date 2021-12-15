@@ -50,25 +50,33 @@
 - name: Init _k8s_host_components
   set_fact:
     _k8s_host_components: "{{ hostvars[groups[k8s_inventory_group][0]]['k8s_components'] | default({}) }}"
-  when: k8s_inventory_group is defined and k8s_inventory_group is string and (k8s_inventory_group|length > 0)
+  when:
+    - k8s_inventory_group is defined
+    - k8s_inventory_group is string
+    - (k8s_inventory_group|length > 0)
 
 - name: Use k8s_components variable if defined
   set_fact:
     _k8s_components: "{{ k8s_components }}"
   when:
-    - k8s_components is defined and (k8s_components|length > 0)
+    - k8s_components is defined
+    - k8s_components is mapping
+    - (k8s_components|length > 0)
 
 - name: Use k8s_components variable defined in the inventory group
   set_fact:
     _k8s_components: "{{ _k8s_host_components }}"
   when:
     - _k8s_host_components is defined and (_k8s_host_components|length > 0)
-    - not (k8s_components is defined and (k8s_components|length > 0))
+    - not (k8s_components is defined and k8s_components is mapping and (k8s_components|length > 0))
 
 - name: Use global k8s_components variable
   set_fact:
     _k8s_components: "{{ k8s_components }}"
-  when: k8s_components is defined and (k8s_components|length > 0)
+  when:
+    - k8s_components is defined
+    - k8s_components is mapping
+    - (k8s_components|length > 0)
 
 - name: Init k8s variables
   set_fact:
