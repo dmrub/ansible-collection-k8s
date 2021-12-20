@@ -51,3 +51,10 @@
     src: "{{ (src+'/inventory/sample/group_vars') | relpath(dest+'/inventory') }}"
     dest: "{{ dest }}/inventory/group_vars"
     state: link
+
+- name: Create link to kubespray roles
+  file:
+    force: yes
+    src: "../kubespray/roles"
+    dest: "{{ dest }}/playbooks/roles"
+    state: link

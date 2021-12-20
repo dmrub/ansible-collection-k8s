@@ -1,5 +1,5 @@
 ---
-- hosts: k8s_all_hosts
+- hosts: "{{ 'k8s-cluster:etcd:calico-rr' if 'k8s-cluster' in groups else 'k8s_cluster:etcd:calico_rr' }}"
   become: yes
   tags:
     - disable_firewall

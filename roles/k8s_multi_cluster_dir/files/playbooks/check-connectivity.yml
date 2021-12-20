@@ -1,7 +1,7 @@
-- name: Check ansible version
-  import_playbook: "{{ kubespray_dir }}/ansible_version.yml"
+#- name: Check ansible version
+#  import_playbook: "{{ kubespray_dir }}/ansible_version.yml"
 
-- hosts: k8s_master_hosts[0]
+- hosts: "{{ 'k8s_master_hosts[0]' if 'k8s_master_hosts' in groups else 'kube-master[0]' }}"
   any_errors_fatal: "{{ any_errors_fatal | default(true) }}"
   become: true
   roles:
@@ -25,7 +25,7 @@
       delegate_to: '{{ item }}'
       loop: "{{ groups['k8s-cluster'] if groups['k8s-cluster'] is defined else groups['k8s_cluster'] }}"
 
-- hosts: k8s_cluster_hosts
+- hosts: "{{ 'k8s_cluster_hosts' if 'k8s_cluster_hosts' in groups else 'k8s-cluster' }}"
   tasks:
     - name: Check connectivity with netchecker
       uri:

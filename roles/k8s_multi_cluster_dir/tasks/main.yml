@@ -237,6 +237,7 @@
     - "disable-firewall.yml"
     - "disable-swap.yml"
     - "check-connectivity.yml"
+    - "fetch-client.yml"
 
 - name: Create config files from templates
   template:
