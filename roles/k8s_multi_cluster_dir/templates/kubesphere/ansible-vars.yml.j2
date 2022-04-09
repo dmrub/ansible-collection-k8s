@@ -1,0 +1,44 @@
+{% macro non_empty_str_var(name, value) -%}
+{% if value is defined and value is not none and (value | string | length > 0) -%}
+{{ name }}: {{ value | to_json }}
+{%- else -%}
+# Variable {{ name }} is not defined
+{%- endif %}
+{%- endmacro %}
+{% macro non_empty_list_var(name, value) -%}
+{% if value is defined and value is not none and
+      value is sequence and value is not string and
+      value is not mapping
+      and (value | list | length > 0) -%}
+{{ name }}: {{ value | to_json }}
+{%- else -%}
+# Variable {{ name }} is not defined
+{%- endif %}
+{%- endmacro %}
+
+{{ non_empty_str_var('kube_external_apiserver_address', kube_external_apiserver_address) }}
+{{ non_empty_str_var('kube_external_apiserver_port', kube_external_apiserver_port) }}
+{{ non_empty_str_var('cluster_name', cluster_name) }}
+
+{{ non_empty_list_var('supplementary_addresses_in_ssl_keys', supplementary_addresses_in_ssl_keys) }}
+
+{% raw %}
+docker_insecure_registries: "{{ (groups['docker_registry'] | default([], true) | map('regex_replace', '^(.*)$', '\\1:' ~ (docker_registry_port|default('5000', true))) | list) }}"
+
+# docker_options: "--insecure-registry={{ kube_service_addresses }} {% for item in docker_insecure_registries %} --insecure-registry={{item}} {% endfor %} --graph={{ docker_daemon_graph }} {{ docker_log_opts }} --iptables=true"
+{% endraw %}
+
+{% if k8s_vars.extra_vars is defined %}
+{{ k8s_vars.extra_vars | dict2items |
+   rejectattr('key', 'equalto', 'kube_external_apiserver_address') |
+   rejectattr('key', 'equalto', 'kube_external_apiserver_port') |
+   rejectattr('key', 'equalto', 'cluster_name') |
+   rejectattr('key', 'equalto', 'supplementary_addresses_in_ssl_keys') |
+   list | items2dict |
+   to_nice_yaml(width=10000)
+}}
+{%- endif %}
+
+k8s_all_hosts: 'k8s_cluster:etcd:calico_rr'
+k8s_all_masters: 'kube_control_plane'
+k8s_cluster_hosts: 'k8s_cluster'

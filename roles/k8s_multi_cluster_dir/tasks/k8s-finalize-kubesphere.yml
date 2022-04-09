@@ -1,0 +1,31 @@
+- name: Set variables
+  set_fact:
+    k8s_component_name: kubesphere 
+
+- name: Create kubekey config file template
+  template:
+    force: "{{ (k8s_config_force_update | bool) or (k8s_all_force_update | bool) }}"
+    src: "{{ k8s_component_name }}/kubekey-cluster-config.yml.j2"
+    dest: "{{ this_file_path }}"
+    mode: u+rw
+  vars:
+    this_file_path: "{{ k8s_dir }}/{{ k8s_cluster_name }}/playbooks/templates/kubekey-cluster-config.yml.j2"
+    cluster_name: "{{ k8s_cluster_name }}"
+    kube_external_apiserver_address: "{{ k8s_vars.extra_vars.kube_external_apiserver_address | default(none) }}"
+    kube_external_apiserver_port: "{{ k8s_vars.extra_vars.kube_external_apiserver_port | default(none) }}"
+    supplementary_addresses_in_ssl_keys: "{{ k8s_vars.extra_vars.supplementary_addresses_in_ssl_keys | default([]) }}"
+
+#- name: Create config files from templates
+#  template:
+#    force: "{{ (k8s_config_force_update | bool) or (k8s_all_force_update | bool) }}"
+#    src: "{{ k8s_component_name }}/{{ item }}.j2"
+#    dest: "{{ this_file_path }}"
+#    mode: u+rw
+#  vars:
+#    this_file_path: "{{ k8s_dir }}/{{ k8s_cluster_name }}/{{ item }}"
+#    cluster_name: "{{ k8s_cluster_name }}"
+#    kube_external_apiserver_address: "{{ k8s_vars.extra_vars.kube_external_apiserver_address | default(none) }}"
+#    kube_external_apiserver_port: "{{ k8s_vars.extra_vars.kube_external_apiserver_port | default(none) }}"
+#    supplementary_addresses_in_ssl_keys: "{{ k8s_vars.extra_vars.supplementary_addresses_in_ssl_keys | default([]) }}"
+#  loop:
+#    - "kubekey-cluster-config.yml"

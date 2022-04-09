@@ -1,0 +1,15 @@
+---
+- name: Reset cluster
+  hosts: k8s_master_hosts[0]
+  any_errors_fatal: "{{ any_errors_fatal | default(true) }}"
+  become: false
+  tasks:
+
+    - name: Save home directory path to variable
+      set_fact:
+        home_dir: "{{ ansible_env.HOME | default('/root') }}"
+
+    - name: Delete cluster
+      shell: >-
+        yes yes |
+        {{ home_dir | quote }}/kk delete cluster -y -f {{ home_dir | quote }}/kubekey-cluster-config.yml;

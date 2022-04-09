@@ -1,6 +1,7 @@
 - name: Set variables
   set_fact:
     venv_dir: "{{ src }}-venv"
+    k8s_component_name: kubespray
 
 - name: Detect kubespray version
   set_fact:
@@ -58,3 +59,29 @@
     src: "../kubespray/roles"
     dest: "{{ dest }}/playbooks/roles"
     state: link
+
+- name: Copy component specific shell script files
+  copy:
+    force: yes
+    src: "{{ k8s_component_name }}/{{ item }}"
+    dest: "{{ this_file_path }}"
+    mode: u+rwx
+  vars:
+    this_file_path: "{{ k8s_dir }}/{{ k8s_cluster_name }}/bin/{{ item }}"
+  loop:
+    - "fetch-client.sh"
+    - "fetch-kube-certs.sh"
+    - "deploy-cluster.sh"
+    - "reset-cluster.sh"
+
+- name: Copy component specific playbook files
+  copy:
+    force: yes
+    src: "{{ k8s_component_name }}/playbooks/{{ item }}"
+    dest: "{{ this_file_path }}"
+    mode: u+rw
+  vars:
+    this_file_path: "{{ k8s_dir }}/{{ k8s_cluster_name }}/playbooks/{{ item }}"
+  loop:
+    - "check-connectivity.yml"
+    - "fetch-client.yml"

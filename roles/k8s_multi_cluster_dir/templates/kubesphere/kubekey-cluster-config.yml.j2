@@ -1,0 +1,117 @@
+{% macro non_empty_str_var(name, value) -%}
+{% if value is defined and value is not none and (value | string | length > 0) -%}
+{{ name }}: {{ value | to_json }}
+{%- else -%}
+# Variable {{ name }} is not defined
+{%- endif %}
+{%- endmacro %}
+{% macro non_empty_list_var(name, value) -%}
+{% if value is defined and value is not none and
+      value is sequence and value is not string and
+      value is not mapping
+      and (value | list | length > 0) -%}
+{{ name }}: {{ value | to_json }}
+{%- else -%}
+# Variable {{ name }} is not defined
+{%- endif %}
+{%- endmacro %}
+{%- set k8s_hostvars = k8s_vars.host_vars -%}
+{%- set k8s_hosts = k8s_vars.host_vars.keys() | list -%}
+apiVersion: kubekey.kubesphere.io/v1alpha2
+kind: Cluster
+metadata:
+  name: sample
+spec:
+  hosts:
+    {% for host in k8s_hosts -%}
+    {%- set is_master = host.endswith('master') or (k8s_hostvars[host].k8s_is_master | default(false) | bool) -%}
+    {%- set host_user = k8s_hostvars[host].ansible_user | default(k8s_vars.extra_vars.ansible_user | default('')) -%}
+    {%- set password = k8s_hostvars[host].ansible_become_pass | default(k8s_vars.extra_vars.ansible_become_pass | default('')) -%}
+    - name: {{ host }}
+      address: {{ k8s_hostvars[host].ansible_host | to_json }}
+      internalAddress: {{ k8s_hostvars[host].ansible_host | to_json }}
+      user: {{ '{{' }} kubekey_user | to_json {{ '}}' }}
+      password: {{ '{{' }} kubekey_password | to_json {{ '}}' }}
+      privateKeyPath: {{ '{{' }} kubekey_private_key_path | to_json {{ '}}' }}
+    {% endfor %}
+
+  roleGroups:
+    etcd:
+      {%- for host in k8s_hosts %}
+      {% set is_master = host.endswith('master') or (k8s_hostvars[host].k8s_is_master | default(false) | bool) %}
+      {% if is_master %}
+
+      - {{ host }}
+      {% endif %}
+      {% endfor %}
+
+    control-plane:
+      {%- for host in k8s_hosts %}
+      {% set is_master = host.endswith('master') or (k8s_hostvars[host].k8s_is_master | default(false) | bool) %}
+      {% if is_master %}
+
+      - {{ host }}
+      {% endif %}
+      {% endfor %}
+
+    worker:
+      {%- for host in k8s_hosts %}
+
+      - {{ host }}
+      {% endfor %}
+
+  controlPlaneEndpoint:
+    ## Internal loadbalancer for apiservers
+    # internalLoadbalancer: haproxy
+
+    domain: lb.kubesphere.local
+    address: ""
+    port: 6443
+  kubernetes:
+    version: v1.21.5
+    clusterName: cluster.local
+    masqueradeAll: false  # masqueradeAll tells kube-proxy to SNAT everything if using the pure iptables proxy mode. [Default: false].
+    maxPods: 110  # maxPods is the number of Pods that can run on this Kubelet. [Default: 110]
+    nodeCidrMaskSize: 24  # The internal network node size allocation. This is the size allocated to each node on your network. [Default: 24]
+    proxyMode: ipvs  # Specify which proxy mode to use. [Default: ipvs]
+    featureGates: # enable featureGates, [Default: {"ExpandCSIVolumes":true,"RotateKubeletServerCertificate": true,"CSIStorageCapacity":true, "TTLAfterFinished":true}]
+      CSIStorageCapacity: true
+      ExpandCSIVolumes: true
+      RotateKubeletServerCertificate: true
+      TTLAfterFinished: true
+    # https://blog.openai.com/scaling-kubernetes-to-2500-nodes/#dockerimagepulls
+    kubeletArgs:
+      - "--image-pull-progress-deadline=30m"
+    {{ non_empty_list_var('apiserverCertExtraSans', supplementary_addresses_in_ssl_keys) }}
+  etcd:
+    type: kubekey  # Specify the type of etcd used by the cluster. When the cluster type is k3s, setting this parameter to kubeadm is invalid. [kubekey | kubeadm | external] [Default: kubekey]
+    ## The following parameters need to be added only when the type is set to external.
+    ## caFile, certFile and keyFile need not be set, if TLS authentication is not enabled for the existing etcd.
+    # external:
+    #   endpoints:
+    #     - https://192.168.6.6:2379
+    #   caFile: /pki/etcd/ca.crt
+    #   certFile: /pki/etcd/etcd.crt
+    #   keyFile: /pki/etcd/etcd.key
+  network:
+    plugin: calico
+    calico:
+      ipipMode: Always  # IPIP Mode to use for the IPv4 POOL created at start up. If set to a value other than Never, vxlanMode should be set to "Never". [Always | CrossSubnet | Never] [Default: Always]
+      vxlanMode: Never  # VXLAN Mode to use for the IPv4 POOL created at start up. If set to a value other than Never, ipipMode should be set to "Never". [Always | CrossSubnet | Never] [Default: Never]
+      vethMTU: 1440  # The maximum transmission unit (MTU) setting determines the largest packet size that can be transmitted through your network. [Default: 1440]
+    kubePodsCIDR: 10.233.64.0/18
+    kubeServiceCIDR: 10.233.0.0/18
+    ## multus support. https://github.com/k8snetworkplumbingwg/multus-cni
+    multusCNI:
+      enabled: false
+  registry:
+    plainHTTP: false
+    privateRegistry: ""
+    namespaceOverride: ""
+    registryMirrors: []
+    insecureRegistries: []
+    #auths: # if docker add by `docker login`, if containerd append to `/etc/containerd/config.toml`
+    #  "registry-1.docker.io":
+    #    username : "xxx"
+    #    password : "***"
+  addons: []

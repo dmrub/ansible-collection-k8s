@@ -1,0 +1,89 @@
+---
+- hosts: k8s_master_hosts[0]
+  any_errors_fatal: "{{ any_errors_fatal | default(true) }}"
+  become: true
+  tags:
+    - client
+  tasks:
+
+    - name: Set directories
+      set_fact:
+        artifacts_dir: "{{ inventory_dir }}/artifacts"
+        bin_dir: /usr/local/bin
+
+    - name: Create kube artifacts dir
+      file:
+        path: "{{ artifacts_dir }}"
+        mode: "0750"
+        state: directory
+      delegate_to: localhost
+      connection: local
+      become: no
+      run_once: yes
+
+    - name: Copy kubectl binary to ansible host
+      fetch:
+        src: "{{ bin_dir }}/kubectl"
+        dest: "{{ artifacts_dir }}/kubectl"
+        flat: yes
+        validate_checksum: no
+      become: no
+      run_once: yes
+
+    - name: Copy admin.conf to ansible host
+      fetch:
+        src: "{{ ansible_env.HOME | default('/root') }}/.kube/config"
+        dest: "{{ artifacts_dir }}/admin.conf"
+        flat: yes
+        validate_checksum: no
+      become: no
+      run_once: yes
+
+    - set_fact:
+        raw_admin_kubeconfig: "{{ lookup('file', _admin_config_path, errors='ignore') }}"
+        admin_config_path: "{{ _admin_config_path }}"
+      vars:
+        _admin_config_path: "{{ artifacts_dir }}/admin.conf"
+      delegate_to: localhost
+      connection: local
+      become: no
+      run_once: yes
+
+    - assert:
+        that:
+          - raw_admin_kubeconfig is defined
+          - raw_admin_kubeconfig is string
+          - (raw_admin_kubeconfig | length) > 0
+        fail_msg: "Could not load Kubernetes configuration file {{ admin_config_path }}"
+
+    - name: Convert kubeconfig to YAML
+      set_fact:
+        admin_kubeconfig: "{{ raw_admin_kubeconfig | from_yaml }}"
+      delegate_to: localhost
+      connection: local
+      become: no
+      run_once: yes
+
+    - name: Override server in kubeconfig
+      set_fact:
+        admin_kubeconfig: "{{ admin_kubeconfig | combine(override_clusters, recursive=True) }}"
+      vars:
+        override_clusters: "{{ { 'clusters': [ admin_kubeconfig_cluster | combine(override_cluster_server, recursive=True) ] } }}"
+        override_cluster_server: "{{ { 'cluster': { 'server': override_server_url } } }}"
+        override_server_url: "https://{{ kube_external_apiserver_address|string }}:{{ kube_external_apiserver_port|string }}"
+        admin_kubeconfig_cluster: "{{ admin_kubeconfig['clusters'][0] }}"
+      when: kube_external_apiserver_address is defined and kube_external_apiserver_port is defined
+      delegate_to: localhost
+      connection: local
+      become: no
+      run_once: yes
+
+    - name: Write admin kubeconfig on ansible host
+      copy:
+        content: "{{ admin_kubeconfig | to_nice_yaml(indent=2) }}"
+        dest: "{{ admin_config_path }}"
+        mode: 0600
+      delegate_to: localhost
+      connection: local
+      become: no
+      run_once: yes

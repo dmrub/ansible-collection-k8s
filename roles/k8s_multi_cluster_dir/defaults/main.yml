@@ -1,5 +1,5 @@
 ---
-# defaults file for k8s-init-cluster-dir
+# defaults file for k8s_multi_cluster_dir
 k8s_components_defaults:
   kubespray:
     repo: https://github.com/dmrub/kubespray

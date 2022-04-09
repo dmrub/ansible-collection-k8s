@@ -1,0 +1,163 @@
+---
+- name: Install all Kubekey requirements
+  hosts: k8s_all_hosts
+  any_errors_fatal: "{{ any_errors_fatal | default(true) }}"
+  tasks:
+
+    - name: Ensure Kubekey requirements are installed on RedHat systems
+      become: true
+      package:
+        name:
+          - curl
+          - socat
+          - conntrack
+          - ebtables
+          - ipset
+        state: present
+      when: ansible_os_family == 'RedHat'
+
+    - name: Ensure Kubekey requirements are installed on Debian systems
+      become: true
+      package:
+        name:
+          - curl
+          - socat
+          - conntrack
+          - ebtables
+          - ipset
+        state: present
+      when: ansible_os_family == 'Debian'
+
+- name: Create login keys for Kubekey installation
+  hosts: 127.0.0.1
+  connection: local
+  gather_facts: false
+  tasks:
+    - name: Check all Ansible inventory sources
+      stat:
+        path: "{{ item }}"
+      register: inventory_sources
+      loop: "{{ ansible_inventory_sources }}"
+
+    - name: Register inventory directory
+      set_fact:
+        local_inventory_dir: "{{ item.item }}"
+      when: item.stat.exists and item.stat.isdir
+      loop: "{{ inventory_sources.results }}"
+
+    - name: Set keys directory name
+      set_fact:
+        keys_dir: "{{ local_inventory_dir }}/keys"
+
+    - name: Create a directory if it does not exist
+      file:
+        path: "{{ keys_dir }}"
+        state: directory
+        mode: "0755"
+
+    - name: Create ssh keypair
+      command: >-
+        ssh-keygen -t ed25519 -a 100 -C "Kubekey install"
+        -f {{ keys_dir ~ '/kubekey_id_ed25519' | quote }} -q -N ''
+      args:
+        creates: "{{ keys_dir }}/kubekey_id_ed25519"
+
+- name: Create kubekey installation user
+  hosts: k8s_all_hosts
+  any_errors_fatal: "{{ any_errors_fatal | default(true) }}"
+  become: false
+  gather_facts: false
+  tasks:
+
+    - name: Get minimal facts
+      setup:
+         gather_subset:
+          - 'min'
+
+    - set_fact:
+        group_list: >-
+            {{
+              ['ssh'] +
+              (['wheel'] if ansible_os_family == 'RedHat' else []) +
+              (['sudo'] if ansible_os_family == 'Debian' else [])
+            }}
+        password: "{{ lookup('password', inventory_dir ~ '/credentials/kubekey-password.txt chars=ascii_lowercase,digits length=20', seed=inventory_hostname) }}"
+
+    - name: Create user
+      become: true
+      user:
+        name: "kubekey"
+        password: "{{ password | password_hash('sha512') }}"
+        groups: "{{ group_list | join(',') }}"
+        state: present
+        append: yes
+        shell: /bin/bash
+        createhome: yes
+
+    - name: Set authorized key took from file
+      become: true
+      authorized_key:
+        user: "kubekey"
+        key: "{{ lookup('file', inventory_dir ~ '/keys/kubekey_id_ed25519.pub') }}"
+        state: present
+
+- name: Configure installation node
+  hosts: k8s_master_hosts[0]
+  any_errors_fatal: "{{ any_errors_fatal | default(true) }}"
+  become: false
+  tasks:
+
+    - name: Save home directory path to variable
+      set_fact:
+        home_dir: "{{ ansible_env.HOME | default('/root') }}"
+
+    - name: Create a directory if it does not exist
+      file:
+        path: "{{ home_dir }}/.ssh/"
+        state: directory
+        mode: "0700"
+
+    - name: Copy login key
+      copy:
+        src: "{{ inventory_dir }}/keys/kubekey_id_ed25519"
+        dest: "{{ home_dir }}/.ssh/"
+        mode: "0600"
+
+    - name: Copy download script
+      copy:
+        src: "files/download-kubekey.sh"
+        dest: "{{ home_dir }}/download-kubekey.sh"
+        mode: u+rwx
+
+    - name: Run download script
+      command: "{{ home_dir }}/download-kubekey.sh"
+      args:
+        chdir: "{{ home_dir }}"
+        creates: "{{ home_dir }}/kk"
+
+    - name: Create configuration file
+      template:
+        src: "templates/kubekey-cluster-config.yml.j2"
+        dest: "{{ home_dir }}/kubekey-cluster-config.yml"
+        mode: "0600"
+      vars:
+        kubekey_user: kubekey
+        kubekey_password: "{{ lookup('file', inventory_dir ~ '/credentials/kubekey-password.txt') }}"
+        kubekey_private_key_path: "~/.ssh/kubekey_id_ed25519"
+
+    - name: Start installation
+      command: "{{ home_dir | quote }}/kk create cluster -y -f {{ home_dir | quote }}/kubekey-cluster-config.yml"
+
+    - name: Copy configuration to the ansible_user
+      become: true
+      shell: >-
+        SRC_DIR=$(echo ~kubekey/.kube);
+        DEST_DIR={{ home_dir ~ '/.kube' | quote }};
+        if [ -d "$DEST_DIR" ]; then
+          rm -rf "$DEST_DIR";
+        fi;
+        cp -a "$SRC_DIR/" "$DEST_DIR/";
+        chown -R {{ ansible_user }}:{{ ansible_user }} "$DEST_DIR/";
+
+- name: Fetch client
+  import_playbook: fetch-client.yml

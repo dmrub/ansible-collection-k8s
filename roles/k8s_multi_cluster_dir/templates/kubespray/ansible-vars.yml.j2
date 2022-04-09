@@ -101,7 +101,13 @@ enable_nodelocaldns: false
    list | items2dict |
    to_nice_yaml(width=10000)
 }}
-{%- endif -%}
+{%- endif %}
+
+# Default netchecker is too old, use the latest version
+netcheck_agent_image_repo: mirantis/k8s-netchecker-agent
+netcheck_agent_image_tag: v1.2.2
+netcheck_server_image_repo: mirantis/k8s-netchecker-server
+netcheck_server_image_tag: v1.2.2
 
 k8s_all_hosts: {{ 'k8s_cluster:etcd:calico_rr' if is_kubespray_2_16_0 else 'k8s-cluster:etcd:calico-rr' }}
 k8s_all_masters: {{ 'kube_control_plane' if is_kubespray_2_16_0 else 'kube-master' }}
